@@ -40,7 +40,7 @@ def discover_service(filetype):
     c = consul.Consul(host=consul_host, port=int(consul_port))
     if filetype in ["docx", "pdf"]:
         service = "service-text"
-    elif filetype in ["jpg", "png"]:
+    elif filetype in ["jpg", "png", "gif"]:
         service = "service-image"
     else:
         return None
@@ -67,7 +67,8 @@ def dispatch():
 
     url = f"https://127.0.0.1:{service['Port']}/convert"
     files = {'file': (filename, file.stream, file.mimetype)}
-    data = {"format": target_format} if service["Service"] == "service-image" else {}
+    # Corrige o nome do campo para o serviço de imagem
+    data = {"format": target_format} if service["Service"] == "service-image" else {"target_format": target_format}
 
     try:
         resp = requests.post(

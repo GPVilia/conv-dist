@@ -54,16 +54,25 @@ def convert_image():
     file.save(input_path)
 
     output_format = request.form.get("format", "").lower()
-    if output_format not in ["jpg", "png"]:
+    if output_format not in ["jpg", "png", "gif"]:
         logging.warning("Formato de destino inválido.")
-        return jsonify({"error": "Invalid format. Supported formats: jpg, png"}), 400
+        return jsonify({"error": "Invalid format. Supported formats: jpg, png, gif"}), 400
 
     output_path = input_path.rsplit('.', 1)[0] + f".{output_format}"
 
     try:
         with Image.open(input_path) as img:
-            img = img.convert("RGB") if output_format == "jpg" else img
-            img.save(output_path, output_format.upper())
+            if output_format in ["jpg", "jpeg"]:
+                if img.mode in ("RGBA", "LA"):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[-1])  # Usa o canal alpha como máscara
+                    img = background
+                else:
+                    img = img.convert("RGB")
+            elif output_format == "gif":
+                img = img.convert("P", palette=Image.ADAPTIVE)
+            format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "gif": "GIF"}
+            img.save(output_path, format_map.get(output_format, output_format.upper()))
         logging.info(f"Ficheiro {filename} convertido com sucesso para {output_format.upper()}.")
 
         @after_this_request
@@ -109,7 +118,7 @@ def register_service():
         service_id=SERVICE_NAME,
         address="127.0.0.1",
         port=SERVICE_PORT,
-        tags=["image", "jpg", "png"],
+        tags=["image", "jpg", "png", "gif"],
         check=check
     )
     logging.info("Serviço registado no Consul.")
