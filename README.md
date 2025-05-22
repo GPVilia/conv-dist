@@ -95,6 +95,27 @@ conv-dist/
 
 ---
 
+## ⚠️ Requisitos para conversão de PDF/DOCX para PNG
+
+Para converter ficheiros **PDF** ou **DOCX** para **PNG**, é necessário instalar o [Poppler](https://github.com/oschwartz10612/poppler-windows/releases/) no teu sistema, pois o pacote `pdf2image` depende deste utilitário externo.
+
+### Instalar o Poppler no Windows
+
+1. Faz download do Poppler para Windows [aqui](https://github.com/oschwartz10612/poppler-windows/releases/).
+2. Extrai o ficheiro ZIP para uma pasta, por exemplo: `C:\poppler`.
+3. Adiciona o caminho `C:\poppler\bin` à variável de ambiente `PATH` do Windows:
+   - Pesquisa por "variáveis de ambiente" no menu iniciar.
+   - Edita a variável `Path` do sistema e adiciona o caminho acima.
+4. Reinicia o terminal ou o PC para aplicar as alterações.
+
+### Notas adicionais
+
+- Para conversão de **DOCX para PDF** é necessário ter o **Microsoft Word** instalado e ativado no Windows.
+- Se quiseres usar o LibreOffice como alternativa ao Word para conversão de DOCX para PDF, também deves instalar o LibreOffice e garantir que o comando `soffice` está no `PATH`.
+- A conversão de PDF para PNG e DOCX para PNG **não funciona** sem o Poppler instalado.
+
+---
+
 ## 📝 Notas
 
 - Os logs detalhados de cada serviço estão na pasta `logs/`.
