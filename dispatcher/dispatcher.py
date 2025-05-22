@@ -38,9 +38,10 @@ def verify_password(username, password):
 def discover_service(filetype):
     consul_host, consul_port = CONSUL_HTTP_ADDR.split(":")
     c = consul.Consul(host=consul_host, port=int(consul_port))
+    # filetype é a extensão do ficheiro de origem!
     if filetype in ["docx", "pdf"]:
         service = "service-text"
-    elif filetype in ["jpg", "png", "gif"]:
+    elif filetype in ["jpg", "jpeg", "png", "gif"]:
         service = "service-image"
     else:
         return None
@@ -58,10 +59,10 @@ def dispatch():
     file = request.files['file']
     target_format = request.form['target_format'].lower()
     filename = secure_filename(file.filename)
-    ext = filename.rsplit('.', 1)[-1].lower()
+    ext = filename.rsplit('.', 1)[-1].lower()  # <-- extensão do ficheiro de origem
 
-    # Descobrir serviço
-    service = discover_service(target_format)
+    # Descobrir serviço com base na extensão do ficheiro de origem!
+    service = discover_service(ext)
     if not service:
         return jsonify({"error": "No service found for this format"}), 404
 

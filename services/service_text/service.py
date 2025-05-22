@@ -7,9 +7,11 @@ from pdf2image import convert_from_path
 from pdf2docx import Converter
 from docx import Document
 import logging
+import sys
 import consul
 import tempfile
 import zipfile
+import subprocess
 
 # Configurações
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
@@ -42,6 +44,41 @@ def verify_password(username, password):
     logging.info(f"Autenticação recebida para o utilizador: {username}")
     return username == USERNAME and password == PASSWORD
 
+def convert_docx_to_pdf(input_path, output_path):
+    """
+    Tenta converter DOCX para PDF usando o executável docx2pdf (CLI).
+    """
+    try:
+        import shutil
+        import sys
+        import platform
+
+        output_dir = os.path.dirname(output_path)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Caminho para o executável docx2pdf
+        if hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix):
+            # Ambiente virtual
+            docx2pdf_exe = os.path.join(sys.prefix, "Scripts", "docx2pdf.exe")
+        else:
+            # Fora de venv
+            docx2pdf_exe = shutil.which("docx2pdf") or "docx2pdf"
+
+        if not os.path.exists(docx2pdf_exe):
+            raise FileNotFoundError(f"docx2pdf.exe não encontrado em {docx2pdf_exe}")
+
+        subprocess.run([
+            docx2pdf_exe, input_path, output_dir
+        ], check=True)
+        base = os.path.splitext(os.path.basename(input_path))[0]
+        converted_pdf = os.path.join(output_dir, base + ".pdf")
+        if converted_pdf != output_path:
+            shutil.move(converted_pdf, output_path)
+        return True
+    except Exception as e:
+        logging.error(f"docx2pdf CLI falhou: {e}", exc_info=True)
+        return False
+
 @app.route("/convert", methods=["POST"])
 @auth.login_required
 def convert_text():
@@ -73,19 +110,16 @@ def convert_text():
         if input_ext == "docx" and target_format == "pdf":
             output_path = input_path.replace('.docx', '.pdf')
             logging.info(f"Convertendo DOCX para PDF: {input_path} -> {output_path}")
-            convert(input_path, output_path)
+            if not convert_docx_to_pdf(input_path, output_path):
+                return jsonify({"error": "Erro ao converter DOCX para PDF (Word e LibreOffice falharam)"}), 500
             output_files = [output_path]
 
         # DOCX para PNG (cada página como imagem)
         elif input_ext == "docx" and target_format == "png":
             temp_pdf = input_path.replace('.docx', '_temp.pdf')
-            try:
-                logging.info(f"Convertendo DOCX para PDF temporário: {input_path} -> {temp_pdf}")
-                convert(input_path, temp_pdf)
-            except Exception as e:
-                logging.error(f"Erro ao converter DOCX para PDF: {e}", exc_info=True)
-                return jsonify({"error": f"Erro ao converter DOCX para PDF: {e}"}), 500
-
+            logging.info(f"Convertendo DOCX para PDF temporário: {input_path} -> {temp_pdf}")
+            if not convert_docx_to_pdf(input_path, temp_pdf):
+                return jsonify({"error": "Erro ao converter DOCX para PDF (Word e LibreOffice falharam)"}), 500
             try:
                 logging.info(f"Convertendo PDF para PNG(s): {temp_pdf}")
                 images = convert_from_path(temp_pdf)
