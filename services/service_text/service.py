@@ -12,6 +12,7 @@ import consul
 import tempfile
 import zipfile
 import subprocess
+import concurrent.futures
 
 # Configurações
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
@@ -27,14 +28,24 @@ log_dir = os.path.join(base_log_dir, "service-logs")
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 log_file = os.path.join(log_dir, "service-text-logs.txt")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_file, encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
+
+# --- CORREÇÃO: Configuração manual dos handlers ---
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+# Remove handlers antigos (importante para evitar duplicados)
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+file_handler = logging.FileHandler(log_file, encoding="utf-8")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+# --- FIM DA CORREÇÃO ---
 
 app = Flask(__name__)
 auth = HTTPBasicAuth()
@@ -78,6 +89,10 @@ def convert_docx_to_pdf(input_path, output_path):
     except Exception as e:
         logging.error(f"docx2pdf CLI falhou: {e}", exc_info=True)
         return False
+
+def save_image(img, img_path):
+    img.save(img_path, 'PNG')
+    return img_path
 
 @app.route("/convert", methods=["POST"])
 @auth.login_required
@@ -124,11 +139,13 @@ def convert_text():
                 logging.info(f"Convertendo PDF para PNG(s): {temp_pdf}")
                 images = convert_from_path(temp_pdf)
                 output_files = []
-                for i, img in enumerate(images):
-                    img_path = input_path.replace('.docx', f'_{i+1}.png')
-                    img.save(img_path, 'PNG')
-                    output_files.append(img_path)
-                    logging.info(f"Página {i+1} convertida para {img_path}")
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    futures = []
+                    for i, img in enumerate(images):
+                        img_path = input_path.replace('.docx', f'_{i+1}.png')
+                        futures.append(executor.submit(save_image, img, img_path))
+                    for future in concurrent.futures.as_completed(futures):
+                        output_files.append(future.result())
             except Exception as e:
                 logging.error(f"Erro ao converter PDF para PNG: {e}", exc_info=True)
                 return jsonify({"error": f"Erro ao converter PDF para PNG: {e}"}), 500
@@ -151,11 +168,14 @@ def convert_text():
             logging.info(f"Convertendo PDF para PNG(s): {input_path}")
             images = convert_from_path(input_path)
             output_files = []
-            for i, img in enumerate(images):
-                img_path = input_path.replace('.pdf', f'_{i+1}.png')
-                img.save(img_path, 'PNG')
-                output_files.append(img_path)
-                logging.info(f"Página {i+1} convertida para {img_path}")
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = []
+                for i, img in enumerate(images):
+                    img_path = input_path.replace('.pdf', f'_{i+1}.png')
+                    futures.append(executor.submit(save_image, img, img_path))
+                for future in concurrent.futures.as_completed(futures):
+                    output_files.append(future.result())
+            # ...existing code...
 
         else:
             logging.warning("Conversão não suportada para este tipo de ficheiro.")
