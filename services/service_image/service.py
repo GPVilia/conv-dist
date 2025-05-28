@@ -116,7 +116,7 @@ def register_service():
     c.agent.service.register(
         name=SERVICE_NAME,
         service_id=SERVICE_NAME,
-        address="127.0.0.1",
+        address="service-image",
         port=SERVICE_PORT,
         tags=["image", "jpg", "png", "gif"],
         check=check
@@ -125,9 +125,8 @@ def register_service():
 
 if __name__ == "__main__":
     register_service()
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../certs"))
-    cert_path = os.path.join(base_dir, "server.crt")
-    key_path = os.path.join(base_dir, "server.key")
+    cert_path = os.path.join("certs", "server.crt")
+    key_path = os.path.join("certs", "server.key")
     context = (cert_path, key_path)
     logging.info("Serviço iniciado.")
-    app.run(host="127.0.0.1", port=SERVICE_PORT, ssl_context=context)
+    app.run(host="0.0.0.0", port=SERVICE_PORT, ssl_context=context)

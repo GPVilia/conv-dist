@@ -5,7 +5,7 @@ import os
 import logging
 import threading
 
-DISPATCHER_URL = "https://127.0.0.1:5000/convert"
+DISPATCHER_URL = "https://localhost:5000/convert"
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
 PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "admin_password")
 

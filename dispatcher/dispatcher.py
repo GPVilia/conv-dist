@@ -66,7 +66,7 @@ def dispatch():
     if not service:
         return jsonify({"error": "No service found for this format"}), 404
 
-    url = f"https://127.0.0.1:{service['Port']}/convert"
+    url = f"https://{service['Address']}:{service['Port']}/convert"
     files = {'file': (filename, file.stream, file.mimetype)}
     # Corrige o nome do campo para o serviço de imagem
     data = {"format": target_format} if service["Service"] == "service-image" else {"target_format": target_format}
@@ -93,8 +93,7 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../certs"))
-    cert_path = os.path.join(base_dir, "server.crt")
-    key_path = os.path.join(base_dir, "server.key")
+    cert_path = os.path.join("certs", "server.crt")
+    key_path = os.path.join("certs", "server.key")
     context = (cert_path, key_path)
-    app.run(host="127.0.0.1", port=SERVICE_PORT, ssl_context=context)
+    app.run(host="0.0.0.0", port=SERVICE_PORT, ssl_context=context)

@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  consul:
+    image: consul:1.15.4
+    container_name: consul-server
+    ports:
+      - "8500:8500"
+    command: "agent -dev -client=0.0.0.0"
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: dispatcher/Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./certs:/app/certs
+      - ./logs:/app/logs
+    environment:
+      - BASIC_AUTH_USERNAME=admin
+      - BASIC_AUTH_PASSWORD=admin_password
+      - CONSUL_HTTP_ADDR=consul:8500
+    depends_on:
+      - consul
+
+  service-text:
+    build:
+      context: .
+      dockerfile: services/service_text/Dockerfile
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./certs:/app/certs
+      - ./logs:/app/logs
+    environment:
+      - BASIC_AUTH_USERNAME=admin
+      - BASIC_AUTH_PASSWORD=admin_password
+      - CONSUL_HTTP_ADDR=consul:8500
+    depends_on:
+      - consul
+
+  service-image:
+    build:
+      context: .
+      dockerfile: services/service_image/Dockerfile
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./certs:/app/certs
+      - ./logs:/app/logs
+    environment:
+      - BASIC_AUTH_USERNAME=admin
+      - BASIC_AUTH_PASSWORD=admin_password
+      - CONSUL_HTTP_ADDR=consul:8500
+    depends_on:
+      - consul
