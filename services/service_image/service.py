@@ -2,10 +2,19 @@ import os
 from flask import Flask, request, send_file, jsonify, after_this_request
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.utils import secure_filename
-from PIL import Image
 import logging
 import consul
 import tempfile
+
+# --- OpenCL imports ---
+try:
+    import pyopencl as cl
+    import numpy as np
+    from PIL import Image
+    OPENCL_AVAILABLE = True
+except ImportError:
+    from PIL import Image
+    OPENCL_AVAILABLE = False
 
 # Configurações
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
@@ -36,6 +45,46 @@ auth = HTTPBasicAuth()
 def verify_password(username, password):
     logging.info(f"Autenticação recebida para o utilizador: {username}")
     return username == USERNAME and password == PASSWORD
+
+def opencl_invert_image(img_path):
+    """
+    Exemplo de processamento OpenCL: inverte as cores da imagem PNG/JPG/GIF.
+    """
+    if not OPENCL_AVAILABLE:
+        return
+    try:
+        img = Image.open(img_path).convert("RGB")
+        img_np = np.array(img).astype(np.uint8)
+        flat_img = img_np.flatten()
+
+        ctx = cl.create_some_context()
+        queue = cl.CommandQueue(ctx)
+        mf = cl.mem_flags
+        buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=flat_img)
+
+        kernel = """
+        __kernel void invert(__global uchar *data) {
+            int i = get_global_id(0);
+            data[i] = 255 - data[i];
+        }
+        """
+        prg = cl.Program(ctx, kernel).build()
+        prg.invert(queue, flat_img.shape, None, buf)
+        result = np.empty_like(flat_img)
+        cl.enqueue_copy(queue, result, buf)
+        img_out = Image.fromarray(result.reshape(img_np.shape))
+        img_out.save(img_path)
+        logging.info(f"Imagem processada com OpenCL (inversão de cores): {img_path}")
+    except Exception as e:
+        logging.warning(f"Erro ao processar imagem com OpenCL: {e}")
+
+def save_image_with_opencl(img, output_path, output_format):
+    img.save(output_path, output_format)
+    try:
+        opencl_invert_image(output_path)
+    except Exception as e:
+        logging.warning(f"OpenCL não disponível ou erro ao inverter imagem: {e}")
+    return output_path
 
 @app.route("/convert", methods=["POST"])
 @auth.login_required
@@ -72,7 +121,7 @@ def convert_image():
             elif output_format == "gif":
                 img = img.convert("P", palette=Image.ADAPTIVE)
             format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "gif": "GIF"}
-            img.save(output_path, format_map.get(output_format, output_format.upper()))
+            save_image_with_opencl(img, output_path, format_map.get(output_format, output_format.upper()))
         logging.info(f"Ficheiro {filename} convertido com sucesso para {output_format.upper()}.")
 
         @after_this_request

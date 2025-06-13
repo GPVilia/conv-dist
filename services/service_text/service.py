@@ -14,6 +14,15 @@ import zipfile
 import subprocess
 import concurrent.futures
 
+# --- OpenCL imports ---
+try:
+    import pyopencl as cl
+    import numpy as np
+    from PIL import Image
+    OPENCL_AVAILABLE = True
+except ImportError:
+    OPENCL_AVAILABLE = False
+
 # Configurações
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
 PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "admin_password")
@@ -57,41 +66,83 @@ def verify_password(username, password):
 
 def convert_docx_to_pdf(input_path, output_path):
     """
-    Tenta converter DOCX para PDF usando o executável docx2pdf (CLI).
+    Converte DOCX para PDF usando docx2pdf (Windows) ou LibreOffice (Linux/Docker).
     """
+    import shutil
+    import sys
+    import platform
+
+    output_dir = os.path.dirname(output_path)
+    os.makedirs(output_dir, exist_ok=True)
+
     try:
-        import shutil
-        import sys
-        import platform
-
-        output_dir = os.path.dirname(output_path)
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Caminho para o executável docx2pdf
-        if hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix):
-            # Ambiente virtual
-            docx2pdf_exe = os.path.join(sys.prefix, "Scripts", "docx2pdf.exe")
+        system = platform.system().lower()
+        if system == "windows":
+            # Tenta usar docx2pdf (Word)
+            try:
+                from docx2pdf import convert as docx2pdf_convert
+                docx2pdf_convert(input_path, output_path)
+                return True
+            except Exception as e:
+                logging.error(f"docx2pdf falhou no Windows: {e}", exc_info=True)
+                return False
         else:
-            # Fora de venv
-            docx2pdf_exe = shutil.which("docx2pdf") or "docx2pdf"
-
-        if not os.path.exists(docx2pdf_exe):
-            raise FileNotFoundError(f"docx2pdf.exe não encontrado em {docx2pdf_exe}")
-
-        subprocess.run([
-            docx2pdf_exe, input_path, output_dir
-        ], check=True)
-        base = os.path.splitext(os.path.basename(input_path))[0]
-        converted_pdf = os.path.join(output_dir, base + ".pdf")
-        if converted_pdf != output_path:
-            shutil.move(converted_pdf, output_path)
-        return True
+            # Usa LibreOffice em Linux/Docker
+            try:
+                subprocess.run([
+                    "libreoffice", "--headless", "--convert-to", "pdf", input_path, "--outdir", output_dir
+                ], check=True)
+                base = os.path.splitext(os.path.basename(input_path))[0]
+                converted_pdf = os.path.join(output_dir, base + ".pdf")
+                if converted_pdf != output_path:
+                    os.rename(converted_pdf, output_path)
+                return True
+            except Exception as e:
+                logging.error(f"Erro ao converter DOCX para PDF com LibreOffice: {e}", exc_info=True)
+                return False
     except Exception as e:
-        logging.error(f"docx2pdf CLI falhou: {e}", exc_info=True)
+        logging.error(f"Erro inesperado na conversão DOCX para PDF: {e}", exc_info=True)
         return False
+
+def opencl_invert_image(img_path):
+    """
+    Exemplo de processamento OpenCL: inverte as cores da imagem PNG.
+    """
+    if not OPENCL_AVAILABLE:
+        return
+    try:
+        img = Image.open(img_path).convert("RGB")
+        img_np = np.array(img).astype(np.uint8)
+        flat_img = img_np.flatten()
+
+        ctx = cl.create_some_context()
+        queue = cl.CommandQueue(ctx)
+        mf = cl.mem_flags
+        buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=flat_img)
+
+        kernel = """
+        __kernel void invert(__global uchar *data) {
+            int i = get_global_id(0);
+            data[i] = 255 - data[i];
+        }
+        """
+        prg = cl.Program(ctx, kernel).build()
+        prg.invert(queue, flat_img.shape, None, buf)
+        result = np.empty_like(flat_img)
+        cl.enqueue_copy(queue, result, buf)
+        img_out = Image.fromarray(result.reshape(img_np.shape))
+        img_out.save(img_path)
+        logging.info(f"Imagem processada com OpenCL (inversão de cores): {img_path}")
+    except Exception as e:
+        logging.warning(f"Erro ao processar imagem com OpenCL: {e}")
 
 def save_image(img, img_path):
     img.save(img_path, 'PNG')
+    # Pós-processamento com OpenCL (exemplo: inverter cores)
+    try:
+        opencl_invert_image(img_path)
+    except Exception as e:
+        logging.warning(f"OpenCL não disponível ou erro ao inverter imagem: {e}")
     return img_path
 
 @app.route("/convert", methods=["POST"])
@@ -119,6 +170,7 @@ def convert_text():
         return jsonify({"error": "Invalid format. Supported formats: pdf, docx, png"}), 400
 
     output_files = []
+    zip_path = None
 
     try:
         # DOCX para PDF
@@ -129,7 +181,7 @@ def convert_text():
                 return jsonify({"error": "Erro ao converter DOCX para PDF (Word e LibreOffice falharam)"}), 500
             output_files = [output_path]
 
-        # DOCX para PNG (cada página como imagem)
+        # DOCX para PNG (cada página como imagem, threads limitadas a 5)
         elif input_ext == "docx" and target_format == "png":
             temp_pdf = input_path.replace('.docx', '_temp.pdf')
             logging.info(f"Convertendo DOCX para PDF temporário: {input_path} -> {temp_pdf}")
@@ -138,14 +190,25 @@ def convert_text():
             try:
                 logging.info(f"Convertendo PDF para PNG(s): {temp_pdf}")
                 images = convert_from_path(temp_pdf)
+                logging.info(f"Total de páginas a processar: {len(images)}")
                 output_files = []
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = []
-                    for i, img in enumerate(images):
-                        img_path = input_path.replace('.docx', f'_{i+1}.png')
-                        futures.append(executor.submit(save_image, img, img_path))
+                
+                def process_page(i_img):
+                    i, img = i_img
+                    img_path = input_path.replace('.docx', f'_page_{i+1:03d}.png')
+                    save_image(img, img_path)
+                    logging.info(f"Página {i+1} processada: {img_path}")
+                    return img_path
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = [executor.submit(process_page, (i, img)) for i, img in enumerate(images)]
                     for future in concurrent.futures.as_completed(futures):
                         output_files.append(future.result())
+                
+                # Ordena por número da página
+                output_files.sort(key=lambda x: int(x.split('_page_')[-1].split('.png')[0]))
+                logging.info(f"Todas as {len(output_files)} páginas processadas com sucesso")
+                
             except Exception as e:
                 logging.error(f"Erro ao converter PDF para PNG: {e}", exc_info=True)
                 return jsonify({"error": f"Erro ao converter PDF para PNG: {e}"}), 500
@@ -163,50 +226,79 @@ def convert_text():
             cv.close()
             output_files = [output_path]
 
-        # PDF para PNG (cada página como imagem)
+        # PDF para PNG (cada página como imagem, threads limitadas a 5)
         elif input_ext == "pdf" and target_format == "png":
             logging.info(f"Convertendo PDF para PNG(s): {input_path}")
             images = convert_from_path(input_path)
+            logging.info(f"Total de páginas a processar: {len(images)}")
             output_files = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = []
-                for i, img in enumerate(images):
-                    img_path = input_path.replace('.pdf', f'_{i+1}.png')
-                    futures.append(executor.submit(save_image, img, img_path))
+            
+            def process_page(i_img):
+                i, img = i_img
+                img_path = input_path.replace('.pdf', f'_page_{i+1:03d}.png')
+                save_image(img, img_path)
+                logging.info(f"Página {i+1} processada: {img_path}")
+                return img_path
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(process_page, (i, img)) for i, img in enumerate(images)]
                 for future in concurrent.futures.as_completed(futures):
                     output_files.append(future.result())
-            # ...existing code...
+            
+            # Ordena por número da página
+            output_files.sort(key=lambda x: int(x.split('_page_')[-1].split('.png')[0]))
+            logging.info(f"Todas as {len(output_files)} páginas processadas com sucesso")
 
         else:
             logging.warning("Conversão não suportada para este tipo de ficheiro.")
             return jsonify({"error": "Conversão não suportada para este tipo de ficheiro."}), 400
 
-        @after_this_request
-        def cleanup(response):
-            try:
-                if os.path.exists(input_path):
-                    os.remove(input_path)
-                    logging.info(f"Removido ficheiro temporário: {input_path}")
-                for f in output_files:
-                    if os.path.exists(f):
-                        os.remove(f)
-                        logging.info(f"Removido ficheiro temporário: {f}")
-            except Exception as e:
-                logging.error(f"Erro ao remover ficheiros temporários: {e}")
-            return response
-
-        # Se só há um ficheiro, envia diretamente, senão envia zip
-        if len(output_files) == 1:
-            logging.info(f"Envio de ficheiro convertido: {output_files[0]}")
-            return send_file(output_files[0], as_attachment=True)
-        else:
-            zip_path = input_path + "_imgs.zip"
+        # Para PNG, cria SEMPRE um ZIP com todas as páginas
+        if target_format == "png":
+            zip_path = input_path + "_pages.zip"
             with zipfile.ZipFile(zip_path, 'w') as zipf:
                 for f in output_files:
                     zipf.write(f, os.path.basename(f))
-            output_files.append(zip_path)
-            logging.info(f"Envio de ficheiro ZIP com imagens: {zip_path}")
-            return send_file(zip_path, as_attachment=True)
+            logging.info(f"ZIP criado com {len(output_files)} imagens: {zip_path}")
+            
+            # Define a função de limpeza
+            @after_this_request
+            def cleanup(response):
+                try:
+                    if os.path.exists(input_path):
+                        os.remove(input_path)
+                        logging.info(f"Removido ficheiro temporário: {input_path}")
+                    for f in output_files:
+                        if os.path.exists(f):
+                            os.remove(f)
+                            logging.info(f"Removido ficheiro PNG temporário: {f}")
+                    if zip_path and os.path.exists(zip_path):
+                        os.remove(zip_path)
+                        logging.info(f"Removido ficheiro ZIP temporário: {zip_path}")
+                except Exception as e:
+                    logging.error(f"Erro ao remover ficheiros temporários: {e}")
+                return response
+            
+            return send_file(zip_path, as_attachment=True, download_name="pages.zip")
+        
+        # Para outros formatos (PDF, DOCX)
+        elif len(output_files) == 1:
+            @after_this_request
+            def cleanup(response):
+                try:
+                    if os.path.exists(input_path):
+                        os.remove(input_path)
+                        logging.info(f"Removido ficheiro temporário: {input_path}")
+                    for f in output_files:
+                        if os.path.exists(f):
+                            os.remove(f)
+                            logging.info(f"Removido ficheiro temporário: {f}")
+                except Exception as e:
+                    logging.error(f"Erro ao remover ficheiros temporários: {e}")
+                return response
+            
+            logging.info(f"Envio de ficheiro convertido: {output_files[0]}")
+            return send_file(output_files[0], as_attachment=True)
 
     except Exception as e:
         logging.error(f"Erro ao converter {filename}: {e}", exc_info=True)
@@ -219,6 +311,9 @@ def convert_text():
                 if os.path.exists(f):
                     os.remove(f)
                     logging.info(f"Removido ficheiro temporário após erro: {f}")
+            if zip_path and os.path.exists(zip_path):
+                os.remove(zip_path)
+                logging.info(f"Removido ficheiro ZIP temporário após erro: {zip_path}")
         except Exception as err:
             logging.error(f"Erro ao remover ficheiros temporários após erro: {err}")
         return jsonify({"error": str(e)}), 500

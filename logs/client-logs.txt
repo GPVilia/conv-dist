@@ -1,0 +1,45 @@
+2025-05-28 17:11:07,856 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/IMG_20240514_004446_139.png | Extensão: png | Opções: ['jpg', 'gif']
+2025-05-28 17:11:08,457 - INFO - Resposta recebida do servidor: status_code=200
+2025-05-28 17:11:15,070 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-05-28 17:11:15,918 - INFO - Resposta recebida do servidor: status_code=500
+2025-05-28 17:11:31,985 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/IMG_20240514_004446_139.png | Extensão: png | Opções: ['jpg', 'gif']
+2025-05-28 17:11:33,341 - INFO - Resposta recebida do servidor: status_code=200
+2025-05-28 17:11:38,079 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-05-28 17:11:44,323 - INFO - Resposta recebida do servidor: status_code=500
+2025-06-13 22:22:04,522 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Ambiente de Trabalho/conv-dist/ficheiro-teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:22:05,837 - INFO - Resposta recebida do servidor: status_code=500
+2025-06-13 22:22:22,495 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/UATLA BG.png | Extensão: png | Opções: ['jpg', 'gif']
+2025-06-13 22:22:23,815 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:25:01,001 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:25:44,026 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:25:45,611 - INFO - Resposta recebida do servidor: status_code=500
+2025-06-13 22:25:53,955 - INFO - Resposta recebida do servidor: status_code=500
+2025-06-13 22:26:07,210 - INFO - Ficheiro selecionado: C:/Users/sniki/Downloads/GE Teste tipo.pdf | Extensão: pdf | Opções: ['docx', 'png']
+2025-06-13 22:26:08,941 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:38:28,825 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:38:30,136 - INFO - Resposta recebida do servidor: status_code=500
+2025-06-13 22:49:39,195 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:49:44,875 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:49:58,827 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:50:33,971 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:50:37,953 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:51:30,716 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:51:35,157 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 22:55:06,134 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 22:55:09,625 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:08:27,333 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 23:08:34,374 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:13:17,630 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:15:18,972 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 23:15:24,479 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:16:27,731 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 23:16:34,332 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:24:10,874 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste.docx
+2025-06-13 23:26:10,403 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 23:26:17,614 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:26:44,332 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:31:39,057 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/Teste_Modelo_Aberto_Inovacao_Mudanca.docx | Extensão: docx | Opções: ['pdf', 'png']
+2025-06-13 23:31:44,126 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:32:06,265 - INFO - Resposta recebida do servidor: status_code=200
+2025-06-13 23:32:27,204 - INFO - Ficheiro selecionado: C:/Users/sniki/OneDrive/Imagens/IMG_20240514_004446_139.png | Extensão: png | Opções: ['jpg', 'gif']
+2025-06-13 23:32:28,360 - INFO - Resposta recebida do servidor: status_code=200

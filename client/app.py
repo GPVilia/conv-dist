@@ -9,7 +9,6 @@ DISPATCHER_URL = "https://localhost:5000/convert"
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
 PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "admin_password")
 
-# Mapas de conversão possíveis
 CONVERSION_MAP = {
     "docx": ["pdf", "png"],
     "pdf": ["docx", "png"],
@@ -36,6 +35,32 @@ logging.basicConfig(
 
 def get_file_extension(path):
     return os.path.splitext(path)[-1][1:].lower()
+
+def get_response_extension(resp, original_file, target_format):
+    # Se for PNG de docx/pdf, deve ser ZIP (prioridade máxima)
+    orig_ext = get_file_extension(original_file)
+    if target_format == "png" and orig_ext in ["docx", "pdf"]:
+        return ".zip"
+    # Tenta obter a extensão do Content-Disposition
+    content_disp = resp.headers.get("Content-Disposition", "")
+    if "filename=" in content_disp:
+        filename = content_disp.split("filename=")[-1].strip().strip('"')
+        ext = os.path.splitext(filename)[-1]
+        if ext:
+            return ext
+    # Se for PDF ou DOCX, usa a extensão correta
+    if target_format in ["pdf", "docx"]:
+        return f".{target_format}"
+    # Se for imagem, tenta pelo Content-Type
+    content_type = resp.headers.get("Content-Type", "")
+    if "image/png" in content_type:
+        return ".png"
+    if "image/jpeg" in content_type:
+        return ".jpg"
+    if "image/gif" in content_type:
+        return ".gif"
+    # fallback
+    return f".{target_format}"
 
 def update_formats(*args):
     file_path = file_var.get()
@@ -73,7 +98,11 @@ def convert_file_thread():
             )
         logging.info(f"Resposta recebida do servidor: status_code={resp.status_code}")
         if resp.status_code == 200:
-            save_path = filedialog.asksaveasfilename(defaultextension=f".{target_format}")
+            # Determina a extensão correta
+            ext = get_response_extension(resp, file_path, target_format)
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            default_filename = f"{base_name}{ext}"
+            save_path = filedialog.asksaveasfilename(defaultextension=ext, initialfile=default_filename)
             if save_path:
                 with open(save_path, "wb") as out:
                     out.write(resp.content)

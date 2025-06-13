@@ -7,6 +7,14 @@ from werkzeug.utils import secure_filename
 import logging
 from io import BytesIO
 
+# --- OpenCL imports (opcional, para demonstração de disponibilidade) ---
+try:
+    import pyopencl as cl
+    import numpy as np
+    OPENCL_AVAILABLE = True
+except ImportError:
+    OPENCL_AVAILABLE = False
+
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
 PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "admin_password")
 CONSUL_HTTP_ADDR = os.getenv("CONSUL_HTTP_ADDR", "localhost:8500")
@@ -81,7 +89,38 @@ def dispatch():
             timeout=60
         )
         if resp.status_code == 200:
-            return send_file(BytesIO(resp.content), download_name=f"converted.{target_format}", as_attachment=True)
+            # Exemplo: pós-processamento OpenCL no dispatcher (apenas para PNG)
+            if OPENCL_AVAILABLE and target_format == "png":
+                try:
+                    from PIL import Image
+                    img = Image.open(BytesIO(resp.content)).convert("RGB")
+                    img_np = np.array(img).astype(np.uint8)
+                    flat_img = img_np.flatten()
+                    ctx = cl.create_some_context()
+                    queue = cl.CommandQueue(ctx)
+                    mf = cl.mem_flags
+                    buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=flat_img)
+                    kernel = """
+                    __kernel void invert(__global uchar *data) {
+                        int i = get_global_id(0);
+                        data[i] = 255 - data[i];
+                    }
+                    """
+                    prg = cl.Program(ctx, kernel).build()
+                    prg.invert(queue, flat_img.shape, None, buf)
+                    result = np.empty_like(flat_img)
+                    cl.enqueue_copy(queue, result, buf)
+                    img_out = Image.fromarray(result.reshape(img_np.shape))
+                    output = BytesIO()
+                    img_out.save(output, format="PNG")
+                    output.seek(0)
+                    return send_file(output, download_name=f"converted.{target_format}", as_attachment=True)
+                except Exception as e:
+                    logging.warning(f"OpenCL pós-processamento falhou: {e}")
+                    # fallback: envia o ficheiro original
+                    return send_file(BytesIO(resp.content), download_name=f"converted.{target_format}", as_attachment=True)
+            else:
+                return send_file(BytesIO(resp.content), download_name=f"converted.{target_format}", as_attachment=True)
         else:
             return jsonify({"error": resp.text}), resp.status_code
     except Exception as e:
@@ -90,7 +129,8 @@ def dispatch():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"}), 200
+    # Mostra se OpenCL está disponível no dispatcher
+    return jsonify({"status": "ok", "opencl": OPENCL_AVAILABLE}), 200
 
 if __name__ == "__main__":
     cert_path = os.path.join("certs", "server.crt")
