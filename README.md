@@ -1,30 +1,51 @@
 # Conversor de Ficheiros Distribuído
 
-Este projeto é uma solução de microserviços para conversão de ficheiros pesados (ex: `.docx` → `.pdf`, `.png` → `.jpg`) de forma escalável, segura e eficiente.  
-A arquitetura utiliza Python, Flask, Docker, Consul para service discovery, autenticação básica e HTTPS com certificados self-signed.
+Este projeto é uma solução moderna baseada em microserviços para conversão de ficheiros de texto e imagem de forma escalável, segura e eficiente.  
+A arquitetura utiliza Python, Flask, Docker, Consul para service discovery, autenticação básica e HTTPS com certificados self-signed.  
+Inclui suporte a processamento paralelo (multi-threading), aceleração opcional com OpenCL, e interface gráfica em CustomTkinter.
 
 ---
 
 ## 🏗️ Arquitetura
 
-- **Cliente**: Interface gráfica em Tkinter para upload e download dos ficheiros convertidos.
-- **Dispatcher**: Serviço Flask que recebe pedidos do cliente, descobre o microserviço adequado via Consul e encaminha o pedido.
+- **Cliente**: Interface gráfica em CustomTkinter para upload e download dos ficheiros convertidos. O cliente deteta automaticamente o tipo de ficheiro devolvido (ex: `.zip` para conversão de PDF/DOCX para PNG) e sugere o nome correto ao guardar.
+- **Dispatcher**: Serviço Flask que recebe pedidos do cliente, descobre o microserviço adequado via Consul e encaminha o pedido. Suporta pós-processamento opcional com OpenCL.
 - **Microserviços**:
-  - `service_text`: Converte ficheiros `.docx` para `.pdf` e vice-versa.
-  - `service_image`: Converte imagens entre `.jpg` e `.png`.
+  - `service_text`: Converte ficheiros `.docx` para `.pdf`, `.pdf` para `.docx`, `.docx`/`.pdf` para `.png` (cada página como imagem, processamento paralelo com até 5 threads, resultado em `.zip`).
+  - `service_image`: Converte imagens entre `.jpg`, `.png` e `.gif`, com suporte a pós-processamento OpenCL.
 - **Consul**: Descoberta dinâmica de serviços.
 - **Logs**: Todos os serviços registam logs detalhadas em ficheiros dedicados.
 
 ---
 
-## 🚀 Como correr o projeto
+## 🚀 Funcionalidades implementadas
+
+- **Conversão de ficheiros DOCX ↔ PDF, PDF ↔ DOCX, PDF/DOCX → PNG (multi-página, multi-thread, ZIP)**
+- **Conversão de imagens entre JPG, PNG e GIF**
+- **Processamento paralelo (máx. 5 threads) para conversão de páginas em PNG**
+- **Resultado de conversão PDF/DOCX → PNG é sempre um ficheiro ZIP com todas as páginas numeradas**
+- **Aceleração opcional com OpenCL (se disponível)**
+- **Deteção automática do sistema operativo para escolher entre Word/docx2pdf (Windows) ou LibreOffice (Linux/Docker)**
+- **Interface gráfica moderna (CustomTkinter)**
+- **Cliente deteta extensão correta do ficheiro devolvido e sugere nome adequado ao guardar**
+- **Comunicação segura via HTTPS (certificados self-signed)**
+- **Autenticação básica em todos os endpoints**
+- **Logs detalhados por serviço**
+- **Volumes Docker para desenvolvimento rápido sem rebuilds**
+- **Limpeza automática de ficheiros temporários**
+
+---
+
+## 🏃‍♂️ Como correr o projeto
 
 ### 1. Pré-requisitos
 
 - Python 3.8+
-- Docker (para Consul)
+- Docker (para Consul e serviços)
 - Pipenv ou venv (recomendado)
 - [Consul](https://www.consul.io/) (pode ser via Docker)
+- [Poppler](https://github.com/oschwartz10612/poppler-windows/releases/) (para PDF→PNG)
+- (Opcional) LibreOffice (para DOCX→PDF em Linux/Docker)
 
 ### 2. Instalar dependências
 
@@ -39,20 +60,17 @@ mkdir certs
 openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt -days 365 -nodes -subj "/CN=localhost"
 ```
 
-### 4. Correr o Consul
+### 4. Correr tudo com Docker Compose
 
 ```bash
-docker run -d --name consul-server -p 8500:8500 consul:1.15.4 agent -dev -client=0.0.0.0
+docker-compose up --build
 ```
 
-### 5. Correr os serviços
+> **Nota:** O código dos serviços e dispatcher está montado como volume, pelo que qualquer alteração ao código é refletida imediatamente sem rebuild.
 
-Em terminais separados, corre:
+### 5. Correr o cliente
 
 ```bash
-python services/service_text/service.py
-python services/service_image/service.py
-python dispatcher/dispatcher.py
 python client/app.py
 ```
 
@@ -63,14 +81,32 @@ python client/app.py
 1. Abre o cliente (`client/app.py`).
 2. Seleciona o ficheiro e o formato de destino.
 3. Clica em "Converter".
-4. O ficheiro convertido será guardado onde escolheres.
+4. O ficheiro convertido será guardado onde escolheres, com a extensão correta (ex: `.zip` para PDF/DOCX→PNG).
 
 ---
 
-## 🔒 Segurança
+## ⚙️ Detalhes técnicos e requisitos
 
-- Toda a comunicação é feita via HTTPS (certificados self-signed).
-- Autenticação básica (username e password) em todos os endpoints.
+### Conversão PDF/DOCX → PNG
+
+- Cada página é processada em paralelo (máx. 5 threads).
+- Todas as imagens são guardadas como PNG numerados (`page_001.png`, `page_002.png`, ...).
+- O resultado é sempre um ficheiro ZIP com todas as imagens.
+- O cliente deteta e sugere automaticamente a extensão `.zip` ao guardar.
+
+### Conversão DOCX → PDF
+
+- Em Windows: usa Microsoft Word via docx2pdf.
+- Em Linux/Docker: usa LibreOffice em modo headless.
+
+### OpenCL
+
+- Se disponível, pode ser usado para pós-processamento de imagens (ex: inversão de cores).
+- O código deteta automaticamente se OpenCL está disponível e usa-o apenas se possível.
+
+### Volumes Docker
+
+- O código-fonte dos serviços e dispatcher está montado como volume (`./services/service_text:/app`, etc.), permitindo desenvolvimento rápido sem rebuilds.
 
 ---
 
@@ -79,53 +115,39 @@ python client/app.py
 ```
 conv-dist/
 ├── client/
+│   └── app.py
 ├── dispatcher/
+│   └── dispatcher.py
 ├── services/
 │   ├── service_text/
+│   │   └── service.py
 │   └── service_image/
+│       └── service.py
 ├── certs/
 ├── logs/
 │   ├── service-logs/
 │   ├── client-logs.txt
 │   └── dispatcher-logs.txt
-├── docker-compose.yml (opcional)
+├── docker-compose.yml
+├── requirements.txt
 ├── .env
 └── README.md
 ```
 
 ---
 
-## ⚠️ Requisitos para conversão de PDF/DOCX para PNG
+## ⚠️ Notas importantes
 
-Para converter ficheiros **PDF** ou **DOCX** para **PNG**, é necessário instalar o [Poppler](https://github.com/oschwartz10612/poppler-windows/releases/) no teu sistema, pois o pacote `pdf2image` depende deste utilitário externo.
-
-### Instalar o Poppler no Windows
-
-1. Faz download do Poppler para Windows [aqui](https://github.com/oschwartz10612/poppler-windows/releases/).
-2. Extrai o ficheiro ZIP para uma pasta, por exemplo: `C:\poppler`.
-3. Adiciona o caminho `C:\poppler\bin` à variável de ambiente `PATH` do Windows:
-   - Pesquisa por "variáveis de ambiente" no menu iniciar.
-   - Edita a variável `Path` do sistema e adiciona o caminho acima.
-4. Reinicia o terminal ou o PC para aplicar as alterações.
-
-### Notas adicionais
-
-- Para conversão de **DOCX para PDF** é necessário ter o **Microsoft Word** instalado e ativado no Windows.
-- Se quiseres usar o LibreOffice como alternativa ao Word para conversão de DOCX para PDF, também deves instalar o LibreOffice e garantir que o comando `soffice` está no `PATH`.
-- A conversão de PDF para PNG e DOCX para PNG **não funciona** sem o Poppler instalado.
-
----
-
-## 📝 Notas
-
+- Para conversão de **PDF/DOCX para PNG** é necessário instalar o [Poppler](https://github.com/oschwartz10612/poppler-windows/releases/) e garantir que o executável está no `PATH`.
+- Para conversão de **DOCX para PDF** em Linux/Docker, é necessário instalar o LibreOffice.
+- O cliente deteta automaticamente o tipo de ficheiro devolvido e sugere a extensão correta ao guardar.
 - Os logs detalhados de cada serviço estão na pasta `logs/`.
-- Para correr em produção, recomenda-se usar um WSGI server (ex: gunicorn) e certificados válidos.
-- O projeto pode ser facilmente expandido para outros tipos de ficheiros/serviços.
+- Para produção, recomenda-se usar certificados válidos e um WSGI server (ex: gunicorn).
 
 ---
 
 ## 📄 Licença
 
 Este projeto é open-source e está licenciado sob a licença [MIT](https://opensource.org/licenses/MIT).  
-Foi desenvolvido como parte de um trabalho acadêmico para a faculdade.
+Desenvolvido como parte de um trabalho acadêmico para a faculdade.
 
