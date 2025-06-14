@@ -38,7 +38,7 @@ if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 log_file = os.path.join(log_dir, "service-text-logs.txt")
 
-# --- CORREÇÃO: Configuração manual dos handlers ---
+# --- Configuração manual dos handlers ---
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
