@@ -66,7 +66,7 @@ openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.cr
 docker-compose up --build
 ```
 
-> **Nota:** O código dos serviços e dispatcher está montado como volume, pelo que qualquer alteração ao código é refletida imediatamente sem rebuild.
+> **Nota:** O código dos serviços e dispatcher não está montado como volume, pelo que qualquer alteração ao código é necessário um rebuild.
 
 ### 5. Correr o cliente
 
