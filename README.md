@@ -31,7 +31,6 @@ Inclui suporte a processamento paralelo (multi-threading), aceleração opcional
 - **Comunicação segura via HTTPS (certificados self-signed)**
 - **Autenticação básica em todos os endpoints**
 - **Logs detalhados por serviço**
-- **Volumes Docker para desenvolvimento rápido sem rebuilds**
 - **Limpeza automática de ficheiros temporários**
 
 ---
