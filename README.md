@@ -103,10 +103,6 @@ python client/app.py
 - Se disponível, pode ser usado para pós-processamento de imagens (ex: inversão de cores).
 - O código deteta automaticamente se OpenCL está disponível e usa-o apenas se possível.
 
-### Volumes Docker
-
-- O código-fonte dos serviços e dispatcher está montado como volume (`./services/service_text:/app`, etc.), permitindo desenvolvimento rápido sem rebuilds.
-
 ---
 
 ## 📂 Estrutura de Pastas
