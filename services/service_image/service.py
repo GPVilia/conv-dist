@@ -5,6 +5,7 @@ from werkzeug.utils import secure_filename
 import logging
 import consul
 import tempfile
+import requests
 
 # --- RabbitMQ imports ---
 import pika
@@ -102,11 +103,13 @@ def save_image_with_opencl(img, output_path, output_format):
 def process_image_conversion(data):
     """
     Função para processar pedidos vindos do RabbitMQ.
+    Agora envia o resultado para o callback_url fornecido.
     """
     try:
         filename = data["filename"]
         file_bytes = base64.b64decode(data["file_bytes"])
-        output_format = data["output_format"]
+        output_format = data["output_format"] if "output_format" in data else data.get("target_format")
+        callback_url = data.get("callback_url")
         input_path = os.path.join(tempfile.gettempdir(), filename)
         with open(input_path, "wb") as f:
             f.write(file_bytes)
@@ -127,7 +130,18 @@ def process_image_conversion(data):
             save_image_with_opencl(img, output_path, format_map.get(output_format, output_format.upper()))
         logging.info(f"Ficheiro {filename} convertido com sucesso para {output_format.upper()}.")
 
-        # Opcional: guardar resultado numa pasta partilhada, enviar notificação, etc.
+        # --- CALLBACK: envia o ficheiro convertido para o callback_url ---
+        if callback_url and os.path.exists(output_path):
+            with open(output_path, "rb") as f:
+                files = {"file": (os.path.basename(output_path), f)}
+                try:
+                    resp = requests.post(callback_url, files=files, timeout=30)
+                    if resp.status_code == 200:
+                        logging.info(f"Ficheiro enviado com sucesso para callback_url: {callback_url}")
+                    else:
+                        logging.error(f"Falha ao enviar ficheiro para callback_url: {callback_url} | Status: {resp.status_code}")
+                except Exception as e:
+                    logging.error(f"Erro ao fazer callback para {callback_url}: {e}")
 
         # Limpeza
         if os.path.exists(input_path):

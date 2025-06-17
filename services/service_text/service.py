@@ -13,6 +13,7 @@ import tempfile
 import zipfile
 import subprocess
 import concurrent.futures
+import requests
 
 # --- RabbitMQ imports ---
 import pika
@@ -155,12 +156,14 @@ def save_image(img, img_path):
 def process_text_conversion(data):
     """
     Função para processar pedidos vindos do RabbitMQ.
+    Agora envia o resultado para o callback_url fornecido.
     """
     try:
         filename = data["filename"]
         file_bytes = base64.b64decode(data["file_bytes"])
         input_ext = filename.rsplit('.', 1)[-1].lower()
         target_format = data["target_format"].lower()
+        callback_url = data.get("callback_url")
         input_path = os.path.join(tempfile.gettempdir(), filename)
         with open(input_path, "wb") as f:
             f.write(file_bytes)
@@ -232,7 +235,21 @@ def process_text_conversion(data):
                 for f in output_files:
                     zipf.write(f, os.path.basename(f))
             logging.info(f"RabbitMQ: ZIP criado com {len(output_files)} imagens: {zip_path}")
-            # Opcional: guardar resultado numa pasta partilhada, enviar notificação, etc.
+
+            # --- CALLBACK: envia o ficheiro ZIP convertido para o callback_url ---
+            if callback_url and os.path.exists(zip_path):
+                zip_filename = os.path.splitext(filename)[0] + ".zip"
+                with open(zip_path, "rb") as f:
+                    files = {"file": (zip_filename, f)}
+                    try:
+                        resp = requests.post(callback_url, files=files, timeout=30)
+                        if resp.status_code == 200:
+                            logging.info(f"Ficheiro ZIP enviado com sucesso para callback_url: {callback_url}")
+                        else:
+                            logging.error(f"Falha ao enviar ZIP para callback_url: {callback_url} | Status: {resp.status_code}")
+                    except Exception as e:
+                        logging.error(f"Erro ao fazer callback para {callback_url}: {e}")
+
             # Limpeza
             for f in output_files:
                 if os.path.exists(f):
@@ -240,6 +257,19 @@ def process_text_conversion(data):
             if os.path.exists(zip_path):
                 os.remove(zip_path)
         elif len(output_files) == 1:
+            # --- CALLBACK: envia o ficheiro convertido para o callback_url ---
+            if callback_url and os.path.exists(output_files[0]):
+                with open(output_files[0], "rb") as f:
+                    files = {"file": (os.path.basename(output_files[0]), f)}
+                    try:
+                        resp = requests.post(callback_url, files=files, timeout=30)
+                        if resp.status_code == 200:
+                            logging.info(f"Ficheiro enviado com sucesso para callback_url: {callback_url}")
+                        else:
+                            logging.error(f"Falha ao enviar ficheiro para callback_url: {callback_url} | Status: {resp.status_code}")
+                    except Exception as e:
+                        logging.error(f"Erro ao fazer callback para {callback_url}: {e}")
+
             # Limpeza
             for f in output_files:
                 if os.path.exists(f):
@@ -409,7 +439,8 @@ def convert_text():
                     logging.error(f"Erro ao remover ficheiros temporários: {e}")
                 return response
             
-            return send_file(zip_path, as_attachment=True, download_name="pages.zip")
+            zip_filename = os.path.splitext(filename)[0] + ".zip"
+            return send_file(zip_path, as_attachment=True, download_name=zip_filename)
         
         # Para outros formatos (PDF, DOCX)
         elif len(output_files) == 1:

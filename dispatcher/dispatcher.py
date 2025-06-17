@@ -8,6 +8,7 @@ import logging
 from io import BytesIO
 import pika
 import json
+import base64
 
 # --- OpenCL imports (opcional, para demonstração de disponibilidade) ---
 try:
@@ -81,81 +82,30 @@ def dispatch():
     file = request.files['file']
     target_format = request.form['target_format'].lower()
     filename = secure_filename(file.filename)
-    ext = filename.rsplit('.', 1)[-1].lower()  # <-- extensão do ficheiro de origem
+    ext = filename.rsplit('.', 1)[-1].lower()
 
     # Descobrir serviço com base na extensão do ficheiro de origem!
     service = discover_service(ext)
     if not service:
         return jsonify({"error": "No service found for this format"}), 404
 
-    # Verifica se é pedido assíncrono
-    is_async = request.form.get("async", "false").lower() == "true" or request.args.get("async", "false").lower() == "true"
+    # --- CALLBACK SYSTEM ---
+    callback_url = request.form.get("callback_url")
+    if not callback_url:
+        return jsonify({"error": "Missing callback_url"}), 400
 
-    if is_async:
-        # Codifica o ficheiro em base64 para enviar na fila
-        file_bytes = file.read()
-        payload = {
-            "filename": filename,
-            "file_bytes": file_bytes.decode('latin1') if isinstance(file_bytes, str) else file_bytes.hex(),
-            "target_format": target_format
-        }
-        # Escolhe a queue certa
-        queue_name = "text_convert_queue" if service["Service"] == "service-text" else "image_convert_queue"
-        publish_to_queue(payload, queue_name)
-        return jsonify({"status": "Pedido enviado para processamento assíncrono via RabbitMQ!"}), 202
-
-    url = f"https://{service['Address']}:{service['Port']}/convert"
-    files = {'file': (filename, file.stream, file.mimetype)}
-    # Corrige o nome do campo para o serviço de imagem
-    data = {"format": target_format} if service["Service"] == "service-image" else {"target_format": target_format}
-
-    try:
-        resp = requests.post(
-            url,
-            files=files,
-            data=data,
-            auth=(USERNAME, PASSWORD),
-            verify=False,
-            timeout=60
-        )
-        if resp.status_code == 200:
-            # Exemplo: pós-processamento OpenCL no dispatcher (apenas para PNG)
-            if OPENCL_AVAILABLE and target_format == "png":
-                try:
-                    from PIL import Image
-                    img = Image.open(BytesIO(resp.content)).convert("RGB")
-                    img_np = np.array(img).astype(np.uint8)
-                    flat_img = img_np.flatten()
-                    ctx = cl.create_some_context()
-                    queue = cl.CommandQueue(ctx)
-                    mf = cl.mem_flags
-                    buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=flat_img)
-                    kernel = """
-                    __kernel void invert(__global uchar *data) {
-                        int i = get_global_id(0);
-                        data[i] = 255 - data[i];
-                    }
-                    """
-                    prg = cl.Program(ctx, kernel).build()
-                    prg.invert(queue, flat_img.shape, None, buf)
-                    result = np.empty_like(flat_img)
-                    cl.enqueue_copy(queue, result, buf)
-                    img_out = Image.fromarray(result.reshape(img_np.shape))
-                    output = BytesIO()
-                    img_out.save(output, format="PNG")
-                    output.seek(0)
-                    return send_file(output, download_name=f"converted.{target_format}", as_attachment=True)
-                except Exception as e:
-                    logging.warning(f"OpenCL pós-processamento falhou: {e}")
-                    # fallback: envia o ficheiro original
-                    return send_file(BytesIO(resp.content), download_name=f"converted.{target_format}", as_attachment=True)
-            else:
-                return send_file(BytesIO(resp.content), download_name=f"converted.{target_format}", as_attachment=True)
-        else:
-            return jsonify({"error": resp.text}), resp.status_code
-    except Exception as e:
-        logging.error(f"Dispatcher error: {e}")
-        return jsonify({"error": str(e)}), 500
+    # Codifica o ficheiro em base64 para enviar na fila
+    file_bytes = file.read()
+    payload = {
+        "filename": filename,
+        "file_bytes": base64.b64encode(file_bytes).decode("utf-8"),
+        "target_format": target_format,
+        "callback_url": callback_url
+    }
+    queue_name = "text_convert_queue" if service["Service"] == "service-text" else "image_convert_queue"
+    publish_to_queue(payload, queue_name)
+    logging.info(f"Pedido publicado em {queue_name} com callback_url: {callback_url}")
+    return jsonify({"status": "Pedido enviado para processamento assíncrono via RabbitMQ! O resultado será enviado para o callback_url."}), 202
 
 @app.route("/health", methods=["GET"])
 def health():
