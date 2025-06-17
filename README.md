@@ -42,6 +42,12 @@ Inclui suporte a processamento paralelo (multi-threading), aceleração opcional
   - Os microserviços consomem pedidos das filas (`text_convert_queue` e `image_convert_queue`) e processam-nos em background, enviando o resultado para o callback do cliente.
 - **Volumes Docker para desenvolvimento**:  
   - O código-fonte dos serviços e dispatcher está montado como volume, permitindo alterações rápidas sem rebuild.
+- **Sistema de callback HTTP:** O cliente arranca um servidor HTTP local e recebe automaticamente o ficheiro convertido, sem polling manual.
+- **Retry automático para RabbitMQ:** Os serviços tentam ligar ao RabbitMQ até este estar disponível, evitando falhas ao arrancar.
+- **Nome dos ficheiros convertidos:** Todos os ficheiros devolvidos (incluindo ZIPs) mantêm o nome do ficheiro original, apenas com a nova extensão.
+- **Cliente com escolha de pasta de destino:** O utilizador pode escolher onde guardar os ficheiros convertidos.
+- **Remoção da barra de loading:** A interface está mais simples e direta para o utilizador.
+- **Documentação e exemplos melhorados:** O README foi atualizado para refletir todas estas alterações e facilitar a explicação do funcionamento do sistema.
 
 ---
 
@@ -160,20 +166,6 @@ conv-dist/
 - Para produção, recomenda-se usar certificados válidos e um WSGI server (ex: gunicorn).
 - O ciclo de retry automático nos serviços garante ligação ao RabbitMQ mesmo que este demore a arrancar.
 - O nome do ficheiro convertido devolvido (incluindo ZIPs) é sempre igual ao ficheiro original, apenas com a nova extensão.
-
----
-
-## 📝 O que foi implementado recentemente (para explicares na apresentação)
-
-- **Sistema de callback HTTP:** O cliente arranca um servidor HTTP local e recebe automaticamente o ficheiro convertido, sem polling manual.
-- **RabbitMQ:** Todos os pedidos são agora processados de forma assíncrona via RabbitMQ, demonstrando arquitetura desacoplada e escalável.
-- **Volumes Docker para desenvolvimento:** O código-fonte dos serviços e dispatcher está montado como volume, permitindo alterações rápidas sem rebuild.
-- **Sistema de logging uniforme:** Todos os serviços usam o mesmo sistema de logging, com logs detalhados e organizados.
-- **Retry automático para RabbitMQ:** Os serviços tentam ligar ao RabbitMQ até este estar disponível, evitando falhas ao arrancar.
-- **Nome dos ficheiros convertidos:** Todos os ficheiros devolvidos (incluindo ZIPs) mantêm o nome do ficheiro original, apenas com a nova extensão.
-- **Cliente com escolha de pasta de destino:** O utilizador pode escolher onde guardar os ficheiros convertidos.
-- **Remoção da barra de loading:** A interface está mais simples e direta para o utilizador.
-- **Documentação e exemplos melhorados:** O README foi atualizado para refletir todas estas alterações e facilitar a explicação do funcionamento do sistema.
 
 ---
 
