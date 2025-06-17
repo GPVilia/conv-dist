@@ -6,6 +6,8 @@ from flask_httpauth import HTTPBasicAuth
 from werkzeug.utils import secure_filename
 import logging
 from io import BytesIO
+import pika
+import json
 
 # --- OpenCL imports (opcional, para demonstração de disponibilidade) ---
 try:
@@ -59,6 +61,18 @@ def discover_service(filetype):
             return s
     return None
 
+def publish_to_queue(payload, queue_name):
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq'))
+    channel = connection.channel()
+    channel.queue_declare(queue=queue_name, durable=True)
+    channel.basic_publish(
+        exchange='',
+        routing_key=queue_name,
+        body=json.dumps(payload),
+        properties=pika.BasicProperties(delivery_mode=2)
+    )
+    connection.close()
+
 @app.route("/convert", methods=["POST"])
 @auth.login_required
 def dispatch():
@@ -73,6 +87,22 @@ def dispatch():
     service = discover_service(ext)
     if not service:
         return jsonify({"error": "No service found for this format"}), 404
+
+    # Verifica se é pedido assíncrono
+    is_async = request.form.get("async", "false").lower() == "true" or request.args.get("async", "false").lower() == "true"
+
+    if is_async:
+        # Codifica o ficheiro em base64 para enviar na fila
+        file_bytes = file.read()
+        payload = {
+            "filename": filename,
+            "file_bytes": file_bytes.decode('latin1') if isinstance(file_bytes, str) else file_bytes.hex(),
+            "target_format": target_format
+        }
+        # Escolhe a queue certa
+        queue_name = "text_convert_queue" if service["Service"] == "service-text" else "image_convert_queue"
+        publish_to_queue(payload, queue_name)
+        return jsonify({"status": "Pedido enviado para processamento assíncrono via RabbitMQ!"}), 202
 
     url = f"https://{service['Address']}:{service['Port']}/convert"
     files = {'file': (filename, file.stream, file.mimetype)}

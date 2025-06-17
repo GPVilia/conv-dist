@@ -14,6 +14,12 @@ import zipfile
 import subprocess
 import concurrent.futures
 
+# --- RabbitMQ imports ---
+import pika
+import json
+import base64
+import threading
+
 # --- OpenCL imports ---
 try:
     import pyopencl as cl
@@ -21,6 +27,7 @@ try:
     from PIL import Image
     OPENCL_AVAILABLE = True
 except ImportError:
+    from PIL import Image
     OPENCL_AVAILABLE = False
 
 # Configurações
@@ -144,6 +151,129 @@ def save_image(img, img_path):
     except Exception as e:
         logging.warning(f"OpenCL não disponível ou erro ao inverter imagem: {e}")
     return img_path
+
+def process_text_conversion(data):
+    """
+    Função para processar pedidos vindos do RabbitMQ.
+    """
+    try:
+        filename = data["filename"]
+        file_bytes = base64.b64decode(data["file_bytes"])
+        input_ext = filename.rsplit('.', 1)[-1].lower()
+        target_format = data["target_format"].lower()
+        input_path = os.path.join(tempfile.gettempdir(), filename)
+        with open(input_path, "wb") as f:
+            f.write(file_bytes)
+
+        output_files = []
+        zip_path = None
+
+        # DOCX para PDF
+        if input_ext == "docx" and target_format == "pdf":
+            output_path = input_path.replace('.docx', '.pdf')
+            logging.info(f"RabbitMQ: Convertendo DOCX para PDF: {input_path} -> {output_path}")
+            if not convert_docx_to_pdf(input_path, output_path):
+                logging.error("RabbitMQ: Erro ao converter DOCX para PDF (Word e LibreOffice falharam)")
+                return
+            output_files = [output_path]
+
+        # DOCX para PNG
+        elif input_ext == "docx" and target_format == "png":
+            temp_pdf = input_path.replace('.docx', '_temp.pdf')
+            logging.info(f"RabbitMQ: Convertendo DOCX para PDF temporário: {input_path} -> {temp_pdf}")
+            if not convert_docx_to_pdf(input_path, temp_pdf):
+                logging.error("RabbitMQ: Erro ao converter DOCX para PDF (Word e LibreOffice falharam)")
+                return
+            try:
+                images = convert_from_path(temp_pdf)
+                output_files = []
+                def process_page(i_img):
+                    i, img = i_img
+                    img_path = input_path.replace('.docx', f'_page_{i+1:03d}.png')
+                    save_image(img, img_path)
+                    return img_path
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = [executor.submit(process_page, (i, img)) for i, img in enumerate(images)]
+                    for future in concurrent.futures.as_completed(futures):
+                        output_files.append(future.result())
+                output_files.sort(key=lambda x: int(x.split('_page_')[-1].split('.png')[0]))
+            finally:
+                if os.path.exists(temp_pdf):
+                    os.remove(temp_pdf)
+
+        # PDF para DOCX
+        elif input_ext == "pdf" and target_format == "docx":
+            output_path = input_path.replace('.pdf', '.docx')
+            logging.info(f"RabbitMQ: Convertendo PDF para DOCX: {input_path} -> {output_path}")
+            cv = Converter(input_path)
+            cv.convert(output_path, start=0, end=None)
+            cv.close()
+            output_files = [output_path]
+
+        # PDF para PNG
+        elif input_ext == "pdf" and target_format == "png":
+            images = convert_from_path(input_path)
+            output_files = []
+            def process_page(i_img):
+                i, img = i_img
+                img_path = input_path.replace('.pdf', f'_page_{i+1:03d}.png')
+                save_image(img, img_path)
+                return img_path
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(process_page, (i, img)) for i, img in enumerate(images)]
+                for future in concurrent.futures.as_completed(futures):
+                    output_files.append(future.result())
+            output_files.sort(key=lambda x: int(x.split('_page_')[-1].split('.png')[0]))
+
+        # Para PNG, cria SEMPRE um ZIP com todas as páginas
+        if target_format == "png":
+            zip_path = input_path + "_pages.zip"
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for f in output_files:
+                    zipf.write(f, os.path.basename(f))
+            logging.info(f"RabbitMQ: ZIP criado com {len(output_files)} imagens: {zip_path}")
+            # Opcional: guardar resultado numa pasta partilhada, enviar notificação, etc.
+            # Limpeza
+            for f in output_files:
+                if os.path.exists(f):
+                    os.remove(f)
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        elif len(output_files) == 1:
+            # Limpeza
+            for f in output_files:
+                if os.path.exists(f):
+                    os.remove(f)
+        if os.path.exists(input_path):
+            os.remove(input_path)
+    except Exception as e:
+        logging.error(f"Erro ao processar pedido RabbitMQ: {e}")
+
+def rabbitmq_consumer():
+    """
+    Thread para consumir pedidos RabbitMQ.
+    """
+    def callback(ch, method, properties, body):
+        try:
+            data = json.loads(body)
+            process_text_conversion(data)
+        except Exception as e:
+            logging.error(f"Erro no callback RabbitMQ: {e}")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+    while True:
+        try:
+            connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq'))
+            channel = connection.channel()
+            channel.queue_declare(queue='text_convert_queue', durable=True)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue='text_convert_queue', on_message_callback=callback)
+            logging.info("A consumir pedidos RabbitMQ em text_convert_queue...")
+            channel.start_consuming()
+        except Exception as e:
+            logging.error(f"Erro na ligação ao RabbitMQ: {e}")
+            import time
+            time.sleep(5)
 
 @app.route("/convert", methods=["POST"])
 @auth.login_required
@@ -343,6 +473,8 @@ def register_service():
     logging.info("Serviço registado no Consul.")
 
 if __name__ == "__main__":
+    # Arranca o consumidor RabbitMQ numa thread separada
+    threading.Thread(target=rabbitmq_consumer, daemon=True).start()
     register_service()
     cert_path = os.path.join("certs", "server.crt")
     key_path = os.path.join("certs", "server.key")

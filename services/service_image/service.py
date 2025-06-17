@@ -6,6 +6,12 @@ import logging
 import consul
 import tempfile
 
+# --- RabbitMQ imports ---
+import pika
+import json
+import base64
+import threading
+
 # --- OpenCL imports ---
 try:
     import pyopencl as cl
@@ -16,7 +22,6 @@ except ImportError:
     from PIL import Image
     OPENCL_AVAILABLE = False
 
-# Configurações
 USERNAME = os.getenv("BASIC_AUTH_USERNAME", "admin")
 PASSWORD = os.getenv("BASIC_AUTH_PASSWORD", "admin_password")
 SERVICE_NAME = "service-image"
@@ -26,17 +31,28 @@ SERVICE_PORT = 5002
 base_log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../logs"))
 if not os.path.exists(base_log_dir):
     os.makedirs(base_log_dir)
-log_file = os.path.join(base_log_dir, "service-logs", "service-image-logs.txt")
-if not os.path.exists(os.path.dirname(log_file)):
-    os.makedirs(os.path.dirname(log_file))
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),  # Logs para o ficheiro
-        logging.StreamHandler()        # Logs para o terminal
-    ]
-)
+log_dir = os.path.join(base_log_dir, "service-logs")
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+log_file = os.path.join(log_dir, "service-image-logs.txt")
+
+# --- Configuração manual dos handlers (igual ao service_text) ---
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+# Remove handlers antigos (importante para evitar duplicados)
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+file_handler = logging.FileHandler(log_file, encoding="utf-8")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+# --- FIM DA CORREÇÃO ---
 
 app = Flask(__name__)
 auth = HTTPBasicAuth()
@@ -47,9 +63,6 @@ def verify_password(username, password):
     return username == USERNAME and password == PASSWORD
 
 def opencl_invert_image(img_path):
-    """
-    Exemplo de processamento OpenCL: inverte as cores da imagem PNG/JPG/GIF.
-    """
     if not OPENCL_AVAILABLE:
         return
     try:
@@ -86,6 +99,70 @@ def save_image_with_opencl(img, output_path, output_format):
         logging.warning(f"OpenCL não disponível ou erro ao inverter imagem: {e}")
     return output_path
 
+def process_image_conversion(data):
+    """
+    Função para processar pedidos vindos do RabbitMQ.
+    """
+    try:
+        filename = data["filename"]
+        file_bytes = base64.b64decode(data["file_bytes"])
+        output_format = data["output_format"]
+        input_path = os.path.join(tempfile.gettempdir(), filename)
+        with open(input_path, "wb") as f:
+            f.write(file_bytes)
+
+        output_path = input_path.rsplit('.', 1)[0] + f".{output_format}"
+
+        with Image.open(input_path) as img:
+            if output_format in ["jpg", "jpeg"]:
+                if img.mode in ("RGBA", "LA"):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[-1])
+                    img = background
+                else:
+                    img = img.convert("RGB")
+            elif output_format == "gif":
+                img = img.convert("P", palette=Image.ADAPTIVE)
+            format_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "gif": "GIF"}
+            save_image_with_opencl(img, output_path, format_map.get(output_format, output_format.upper()))
+        logging.info(f"Ficheiro {filename} convertido com sucesso para {output_format.upper()}.")
+
+        # Opcional: guardar resultado numa pasta partilhada, enviar notificação, etc.
+
+        # Limpeza
+        if os.path.exists(input_path):
+            os.remove(input_path)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+    except Exception as e:
+        logging.error(f"Erro ao processar pedido RabbitMQ: {e}")
+
+def rabbitmq_consumer():
+    """
+    Thread para consumir pedidos RabbitMQ.
+    """
+    def callback(ch, method, properties, body):
+        try:
+            data = json.loads(body)
+            process_image_conversion(data)
+        except Exception as e:
+            logging.error(f"Erro no callback RabbitMQ: {e}")
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+    while True:
+        try:
+            connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq'))
+            channel = connection.channel()
+            channel.queue_declare(queue='image_convert_queue', durable=True)
+            channel.basic_qos(prefetch_count=1)
+            channel.basic_consume(queue='image_convert_queue', on_message_callback=callback)
+            logging.info("A consumir pedidos RabbitMQ em image_convert_queue...")
+            channel.start_consuming()
+        except Exception as e:
+            logging.error(f"Erro na ligação ao RabbitMQ: {e}")
+            import time
+            time.sleep(5)  # Espera antes de tentar novamente
+
 @app.route("/convert", methods=["POST"])
 @auth.login_required
 def convert_image():
@@ -114,7 +191,7 @@ def convert_image():
             if output_format in ["jpg", "jpeg"]:
                 if img.mode in ("RGBA", "LA"):
                     background = Image.new("RGB", img.size, (255, 255, 255))
-                    background.paste(img, mask=img.split()[-1])  # Usa o canal alpha como máscara
+                    background.paste(img, mask=img.split()[-1])
                     img = background
                 else:
                     img = img.convert("RGB")
@@ -138,7 +215,6 @@ def convert_image():
         return send_file(output_path, as_attachment=True)
     except Exception as e:
         logging.error(f"Erro ao converter {filename}: {e}")
-        # Limpeza mesmo em caso de erro
         try:
             if os.path.exists(input_path):
                 os.remove(input_path)
@@ -173,6 +249,8 @@ def register_service():
     logging.info("Serviço registado no Consul.")
 
 if __name__ == "__main__":
+    # Arranca o consumidor RabbitMQ numa thread separada
+    threading.Thread(target=rabbitmq_consumer, daemon=True).start()
     register_service()
     cert_path = os.path.join("certs", "server.crt")
     key_path = os.path.join("certs", "server.key")
